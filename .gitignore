@@ -1,0 +1,17 @@
+node_modules
+node/*
+!node/.tips.txt
+chrome/*
+!chrome/.tips.txt
+temp
+test
+style_list_file.txt
+md_to_word.zip
+dist.zip
+dist.zip.tmp
+private_config.toml
+__pycache__
+conversion.build
+nuitka-crash-report.xml
+./start.cmd
+./start.exe

@@ -1,0 +1,54 @@
+# [基本选项]
+
+
+# [必填] 源路径：要被转换的 Markdown 文件的位置
+# [示例]
+# src_path = "D:/毕业设计/几何驱动的图像颜色编辑与应用.md"
+src_path = ""
+
+# [必填] 目标路径：生成的 Docx 放置的位置
+# [示例]
+# target_path = "D:/毕业设计/几何驱动的图像颜色编辑与应用.docx"
+target_path = ""
+
+# [必填] 模板路径：模板的位置
+# （由于部分内容是很难生成的，所以直接使用了更改的原文件）
+template_path = "./template/[template]（整本模板-普招）信息与智能工程学院2020级毕业论文（设计）（更新：2023.12）.docx"
+
+# [必填] [可用宏] 临时文件夹路径：用于生成过程中放置一些临时文件
+# （每次运行转换都会导致临时文件被清理！如果你确定临时文件夹不会意外覆盖掉掉你的文件，那就不用理这一项。）
+temp_dir_path = "{target_dir}/.md_to_word_temp"
+
+# Obsdian 图片查找目录
+# （Obsdian 是一个编写 Markdown 的软件，如果你不使用 Obsdian，请略过此项。）
+# 由于 Obsdian 引用图片是没有路径的，所以你需要在此告诉转换器那些图片都被放在了哪些文件夹。
+# [示例]
+# obsdian_image_find_paths = [
+#   "D:/毕业设计/assets",
+#   "D:/毕业设计/imgs"
+# ]
+obsdian_image_find_paths = []
+
+
+# [高级选项]
+
+
+# [必填] Node.js 路径
+# 如果你安装了 Node.js，你可以通过设置这个路径使用自己的 Node.js
+nodejs_path = "./node/node.exe"
+
+# [必填] [实验性] Chromium 路径
+# 如果你安装了谷歌浏览器，你可以通过设置这个路径以使用自己的谷歌浏览器。
+# 注意：该项功能未经测试，无法保证是否能成功运行
+chromium_path = "./chrome/chrome.exe"
+
+
+
+# 帮助文档
+#
+# [必填和选填]
+# 没有标上 [必填] 的均为选填项。
+#
+# [可用宏]
+# {src_dir} 表示源路径所在的目录
+# {target_dir} 表示目标路径所在的目录

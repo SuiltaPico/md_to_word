@@ -1,0 +1,1 @@
+"D:\Program Files\7-Zip\7z.exe" a -tzip ./dist.zip ./* -xr!private_config.toml -xr!conversion.build -xr!test -xr!.git
