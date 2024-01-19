@@ -727,10 +727,11 @@ for section in sections:
 # composer = Composer(template_doc)
 
 # composer.append(doc, False)
+doc.save(f"{temp_dir_path}/main_doc.docx")
 composer.save(f"{temp_dir_path}/temp.docx")
 
 try:
-  doc.save(target_path)
+  composer.save(target_path)
 
   print(f"\n\n{bcolors.OKGREEN}----生成成功----{bcolors.ENDC}\n")
   print(f"\n\n{bcolors.OKGREEN}文件储存在 {bcolors.BOLD}{path.abspath(target_path)}{bcolors.ENDC}\n")
