@@ -1,3 +1,4 @@
+.obsidian
 node_modules
 node/*
 !node/.tips.txt
@@ -13,5 +14,5 @@ private_config.toml
 __pycache__
 conversion.build
 nuitka-crash-report.xml
-./start.cmd
-./start.exe
+/start.cmd
+/start.exe
