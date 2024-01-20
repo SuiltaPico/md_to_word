@@ -107,14 +107,14 @@ def list_number(doc, par, prev=None, level=None, num=True):
   par._p.get_or_add_pPr().get_or_add_numPr().get_or_add_ilvl().val = level
 
 # 不应该使用这个函数，应该使用Word的自动生成目录。
-def add_toc(doc, ):
+def add_toc(doc):
   paragraph = doc.add_paragraph()
   run = paragraph.add_run()
   fldChar = OxmlElement('w:fldChar')  # creates a new element
   fldChar.set(qn('w:fldCharType'), 'begin')  # sets attribute on element
   instrText = OxmlElement('w:instrText')
   instrText.set(qn('xml:space'), 'preserve')  # sets attribute on element
-  instrText.text = 'TOC \\o "1-3" \\h \\z \\u' # type: ignore # change 1-3 depending on heading levels you need
+  instrText.text = 'TOC \\o "1-2" \\h \\z \\u' # type: ignore # change 1-3 depending on heading levels you need
 
   fldChar2 = OxmlElement('w:fldChar')
   fldChar2.set(qn('w:fldCharType'), 'separate')
@@ -139,6 +139,22 @@ def create_element(name):
 
 def create_attribute(element, name, value):
   element.set(ns.qn(name), value)
+
+def create_page_number_type(start_num=None, format=None):  # type: ignore
+  """
+  参数：
+  - `format` - 页码格式。
+    - `1` 是大写罗马数字。
+    - 参考：https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.numberformatvalues?view=openxml-2.8.1
+  
+  更改自：https://stackoverflow.com/a/67917565
+  """
+  num_type = OxmlElement('w:pgNumType')
+  if start_num != None:
+    num_type.set(qn('w:start'), str(start_num))
+  if format != None:
+    num_type.set(qn('w:fmt'), str(format))
+  return num_type
 
 def add_page_number(run):
   fldChar1 = create_element('w:fldChar')

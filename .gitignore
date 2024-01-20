@@ -15,4 +15,4 @@ __pycache__
 conversion.build
 nuitka-crash-report.xml
 /start.cmd
-/start.exe
+/*.exe

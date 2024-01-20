@@ -5,19 +5,22 @@ import json
 import math
 import os
 import os.path as path
+import pprint
 import re
-import sys
 import shutil
+import sys
 import time
 
-from requests import get as requests_get
-from yaml import load as yaml_load, Loader as yaml_Loader
-from docx.document import Document as DocumentType
+import linkify_it
 from docx import Document
+from docx.document import Document as DocumentType
 from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.table import WD_ALIGN_VERTICAL
 # WD_LINE_SPACING 为行距。
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_UNDERLINE, WD_TAB_LEADER, WD_PARAGRAPH_ALIGNMENT
+from docx.enum.text import (WD_ALIGN_PARAGRAPH, WD_LINE_SPACING,
+                            WD_PARAGRAPH_ALIGNMENT, WD_TAB_LEADER,
+                            WD_UNDERLINE)
 from docx.oxml import CT_Inline, OxmlElement, ns, xmlchemy
 # 颜色、单位。
 from docx.shared import Cm, Pt, RGBColor
@@ -25,20 +28,19 @@ from docx.styles.style import CharacterStyle, ParagraphStyle
 from docxcompose.composer import Composer
 from markdown_it import MarkdownIt
 from mdit_py_plugins import front_matter
-from obsdian_image_plugin import obsdian_image_plugin
+from requests import get as requests_get
+from yaml import Loader as yaml_Loader
+from yaml import load as yaml_load
 
-from myutils import (
-  add_page_number, create_attribute, create_element,
-  list_number, set_bold,
-  count_char_map, calculate_char_map_space_sum, get_count_char_space_width,
-  set_font_face, set_font_face_en,
-  preprint_content_in_map, print_faild
-)
-from myenums import (
-  bcolors, FontSizes, CNFontFaces
-)
 from myconfig import load_config
+from myenums import CNFontFaces, FontSizes, bcolors
 from mynode_server import start_node_server
+from myutils import (add_page_number, add_toc, calculate_char_map_space_sum,
+                     count_char_map, create_attribute, create_element,
+                     create_page_number_type, get_count_char_space_width,
+                     list_number, preprint_content_in_map, print_faild,
+                     set_bold, set_font_face, set_font_face_en)
+from obsdian_image_plugin import obsdian_image_plugin
 
 cfg = None
 try:
@@ -69,9 +71,9 @@ os.mkdir(temp_dir_path)
 
 node_server = start_node_server(nodejs_path)
 
-md = MarkdownIt("commonmark", {
-  "html": True
-}).use(
+md = MarkdownIt("gfm-like", {
+  "html": True,
+}).enable('table').use(
   front_matter.index.front_matter_plugin
   ).use(
     obsdian_image_plugin,
@@ -79,6 +81,7 @@ md = MarkdownIt("commonmark", {
       "obsdian_image_find_paths": obsdian_image_find_paths
     }
   )
+
 
 # 页眉的格式设置函数
 def procress_header(header):
@@ -178,7 +181,7 @@ for heading_level in range(1, 7):
 
 # 代码样式
 # 代码格式为五号，英文为Times New Roman；中文为宋体，单倍行距。
-code_style: ParagraphStyle = doc.styles.add_style("Code", WD_STYLE_TYPE.PARAGRAPH, True) # type: ignore
+code_style: ParagraphStyle = doc.styles.add_style("代码", WD_STYLE_TYPE.PARAGRAPH, True) # type: ignore
 code_style.font.size = Pt(FontSizes.五号)
 code_style.quick_style = True
 code_style.hidden = False
@@ -323,12 +326,26 @@ en_abstract_content_tag_style.priority = 99
 set_bold(en_abstract_content_tag_style)
 set_font_face_en(en_abstract_content_tag_style, 'Times New Roman')
 
+# 代码样式
+# 代码格式为五号，英文为Times New Roman；中文为宋体，单倍行距。
+table_content: ParagraphStyle = doc.styles.add_style("表格内容", WD_STYLE_TYPE.PARAGRAPH, True) # type: ignore
+table_content.priority = 99
+table_content.quick_style = True
+table_content.hidden = False
+table_content.font.size = Pt(FontSizes.五号)
+set_font_face(table_content, CNFontFaces.宋体, 'Times New Roman')
+table_content.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+table_content.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+table_content.paragraph_format.space_before = 0
+table_content.paragraph_format.space_after = 0
 
 
 with open(src_path, "r+", -1, "utf8") as src_file:
   src_content = src_file.read()
   src_lines = src_content.split("\n")
-  tokens = md.parse(src_content.replace("\n", "\n\n"), {})
+  # tokens = md.parse(src_content.replace("\n", "\n\n"), {})
+  tokens = md.parse(src_content, {})
+  # print(tokens)
 
   # 预先加载元信息
   for ti in range(len(tokens)):
@@ -480,10 +497,14 @@ for it in template_doc.styles:
   except:
     # print("added", it.name)
     composer.add_styles(template_doc, it._element)
+    
 composer.append(template_doc, False)
 print("[操作] 合并模板完成。")
 
 doc = composer.doc
+
+# [问题修复] 自动生成目录
+add_toc(doc)
 
 # [问题修复] 这段代码解决以下问题：
 # 默认的页眉宽度过宽，导致右侧（标题）文本异常溢出。
@@ -500,7 +521,6 @@ with open(path.join(temp_dir_path, "style_list_file.txt"), "w+", -1, "utf8") as 
   style_list_file.write("\n".join(style_list))
 
 src_lines = src_content.split("\n")
-tokens = md.parse(src_content.replace("\n", "\n\n"), {})
 first_title_1 = True
 last_level_1_heading_text = ""
 # 最后的二级标题。每当开启新的一级标题的时候会被检查和清理。
@@ -510,7 +530,6 @@ last_level_2_heading_text = None
 last_list_item = None
 last_list_item_level = None
 last_list_item_type = None
-
 
 def get_meta_data_paper_title():
   global meta_data
@@ -534,133 +553,199 @@ lists_last_p = []
 # last_level_1_heading_text = "目录"
 # procress_header(toc_header)
 
+# print(tokens)
+
+mode = "normal"
+table = None
+table_row = None
+table_row_cell_index = 0
+table_first_row = True
 for ti in range(len(tokens)):
   token = tokens[ti]
-  list_token = None
-  list_style = None
-  list_type = None
 
-  lists_len = lists.__len__()
-  if lists_len > 0:
-    list_token = lists[-1]
-    list_style = "List Bullet"
-    list_type = "bullet"
-    if list_token.type == "ordered_list_open":
-      list_style = "List Number"
-      list_type = "order"
+  if mode == "normal":
+    list_token = None
+    list_style = None
+    list_type = None
 
-    if lists_len > 1:
-      list_style += f" {lists_len}"
+    lists_len = lists.__len__()
+    if lists_len > 0:
+      list_token = lists[-1]
+      list_style = "List Bullet"
+      list_type = "bullet"
+      if list_token.type == "ordered_list_open":
+        list_style = "List Number"
+        list_type = "order"
 
-  if token.type == "heading_open":
-    level = int(token.tag[1:])
-    text = re.sub(r"\s", "\u00a0", tokens[ti + 1].content.strip())
+      if lists_len > 1:
+        list_style += f" {lists_len}"
 
-    # if level > 3:
-    #   print(
-    #     f"{bcolors.WARNING}[警告] 使用了规范未规定的 {bcolors.BOLD}{level}{bcolors.ENDC}{bcolors.WARNING} 级标题，可能会导致论文不合规范。\n{bcolors.ENDC}"
-    #     + preprint_content_in_map(src_lines, token.map) + "\n"
-    #   )
-    # if level <= 3 and ti - 1 > 0 and tokens[ti - 1].type == "heading_close":
-    #   print(
-    #     f"{bcolors.WARNING}[警告] 两级标题之间要有过渡性文字。可以通过一段话引出下面的文字或者对本章内容概括。\n{bcolors.ENDC}"
-    #     + preprint_content_in_map(src_lines, [tokens[ti - 3].map[0], token.map[1]]) + "\n" # type: ignore
-    #   )
-    if level == 1:
-      # s = doc.sections[doc.sections.__len__() - 1]
-      # if first_title_1:
-      #   first_title_1 = False
-      # else:
-      s = doc.add_section(WD_SECTION.CONTINUOUS)
-      header = s.header
+    if token.type == "heading_open":
+      level = int(token.tag[1:])
+      text = re.sub(r"\s", "\u00a0", tokens[ti + 1].content.strip())
 
-      if last_level_1_heading_text != "":
-        header.paragraphs[0].text = (f"{get_meta_data_paper_title()}\t\t{last_level_1_heading_text}")
-      procress_header(header)
+      # if level > 3:
+      #   print(
+      #     f"{bcolors.WARNING}[警告] 使用了规范未规定的 {bcolors.BOLD}{level}{bcolors.ENDC}{bcolors.WARNING} 级标题，可能会导致论文不合规范。\n{bcolors.ENDC}"
+      #     + preprint_content_in_map(src_lines, token.map) + "\n"
+      #   )
+      # if level <= 3 and ti - 1 > 0 and tokens[ti - 1].type == "heading_close":
+      #   print(
+      #     f"{bcolors.WARNING}[警告] 两级标题之间要有过渡性文字。可以通过一段话引出下面的文字或者对本章内容概括。\n{bcolors.ENDC}"
+      #     + preprint_content_in_map(src_lines, [tokens[ti - 3].map[0], token.map[1]]) + "\n" # type: ignore
+      #   )
+      if level == 1:
+        # s = doc.sections[doc.sections.__len__() - 1]
+        # if first_title_1:
+        #   first_title_1 = False
+        # else:
+        s = doc.add_section(WD_SECTION.CONTINUOUS)
+        header = s.header
 
-      last_level_1_heading_text = text
-      # if last_level_2_heading_line != None:
-      #   if last_level_2_heading_text != "本章小结":
-      #     print(
-      #       f"{bcolors.WARNING}[警告] 除第1章和最后1章外，每章最后一节为“本章小结”。\n{bcolors.ENDC}"
-      #     )
-      #   last_level_2_heading_text = None
-      #   last_level_2_heading_line = None
+        if last_level_1_heading_text != "":
+          header.paragraphs[0].text = (f"{get_meta_data_paper_title()}\t\t{last_level_1_heading_text}")
+        procress_header(header)
 
-    # if level == 2:
-    #   last_level_2_heading_text = text
-    #   last_level_2_heading_line = token.map[0] # type: ignore
+        last_level_1_heading_text = text
+        # if last_level_2_heading_line != None:
+        #   if last_level_2_heading_text != "本章小结":
+        #     print(
+        #       f"{bcolors.WARNING}[警告] 除第1章和最后1章外，每章最后一节为“本章小结”。\n{bcolors.ENDC}"
+        #     )
+        #   last_level_2_heading_text = None
+        #   last_level_2_heading_line = None
 
-    heading = doc.add_paragraph(text, f"Heading {level}")
-  elif token.type == "paragraph_open":
-      inline_token = tokens[ti + 1]
-      if inline_token.children:
-        for tk in inline_token.children:
-          if tk.type == "text":
-            if last_level_1_heading_text == "参考文献":
-              matched = re.search(r"\[\s*(\d+)\s*\]\s*(.+)", tk.content)
-              if not matched:
-                p = doc.add_paragraph(tk.content, "参考文献")
+      # if level == 2:
+      #   last_level_2_heading_text = text
+      #   last_level_2_heading_line = token.map[0] # type: ignore
+
+      heading = doc.add_paragraph(text, f"Heading {level}")
+    elif token.type == "paragraph_open":
+        inline_token = tokens[ti + 1]
+        if inline_token.children:
+          for tk in inline_token.children:
+            if tk.type == "text":
+              if last_level_1_heading_text == "参考文献":
+                matched = re.search(r"\[\s*(\d+)\s*\]\s*(.+)", tk.content)
+                if not matched:
+                  p = doc.add_paragraph(tk.content, "参考文献")
+                else:
+                  p = doc.add_paragraph(f"[{matched.group(1)}]\t{matched.group(2)}", "参考文献")
+                  # p.add_run(matched.group(2).strip())
+                  p.paragraph_format.tab_stops.add_tab_stop(
+                    Pt(FontSizes.小五 * 2.4), # type: ignore
+                  )
+              elif lists_len > 0:
+                p = doc.add_paragraph(tk.content, list_style)
+                prev = lists_last_p[-1]
+                # print(prev.text if prev else None, p.text)
+                list_number(doc, p, prev, level=lists_len - 1, num = list_type == "order")
+                lists_last_p[-1] = p
               else:
-                p = doc.add_paragraph(f"[{matched.group(1)}]\t", "参考文献")
-                p.paragraph_format.tab_stops.add_tab_stop(
-                  Pt(FontSizes.小五 * 2.4), # type: ignore
-                )
-                p.add_run(matched.group(2))
-            elif lists_len > 0:
-              p = doc.add_paragraph(tk.content, list_style)
-              prev = lists_last_p[-1]
-              # print(prev.text if prev else None, p.text)
-              list_number(doc, p, prev, level=lists_len - 1, num = list_type == "order")
-              lists_last_p[-1] = p
+                p = doc.add_paragraph(tk.content)
+            elif tk.type == "image":
+              doc.add_picture(path.join(path.dirname(src_path), tk.attrs["src"]), Pt(380)) # type: ignore
+              last_paragraph = doc.paragraphs[-1] 
+              last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+              doc.add_paragraph(tk.content, "插图标题")
+            elif tk.type == "softbreak":
+              pass
             else:
-              p = doc.add_paragraph(tk.content)
-          elif tk.type == "image":
-            doc.add_picture(path.join(path.dirname(src_path), tk.attrs["src"]), Pt(380)) # type: ignore
-            last_paragraph = doc.paragraphs[-1] 
-            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            doc.add_paragraph(tk.content, "插图标题")
-          else:
-            doc.add_paragraph(tk.content, list_style if list_style else None)
+              # print(tk.type, tk.content)
+              doc.add_paragraph(tk.content, list_style if list_style else None)
+        else:
+          text = inline_token.content
+          doc.add_paragraph(text)
+    elif token.type == "fence":
+      if token.info == "mermaid":
+        id = str(time.time_ns()) + "-" + str(get_id())
+        temp_mmd_path = path.abspath(path.join(temp_dir_path, id + ".mmd"))
+        temp_svg_path = path.abspath(path.join(temp_dir_path, id + ".png"))
+        with open(temp_mmd_path, "w+", -1, "utf8") as temp_mmd:
+          temp_mmd.write(token.content)
+        requests_get(f"http://127.0.0.1:{node_server['port']}/render_mermaid?src={temp_mmd_path}&target={temp_svg_path}")
+        doc.add_picture(temp_svg_path, Pt(380))
+        last_paragraph = doc.paragraphs[-1] 
+        last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        if ti - 1 > 0 and tokens[ti - 1].type == "html_block":
+          html_block = tokens[ti - 1]
+          matched = re.match(r"<!--(?P<content>(.|\s|\n)*?)-->", html_block.content)
+          if matched:
+            try:
+              data = json.loads(matched.group("content"))
+              if data["name"]:
+                doc.add_paragraph(data["name"], "插图标题")
+            except: pass
       else:
-        text = inline_token.content
-        doc.add_paragraph(text)
-  elif token.type == "fence":
-    if token.info == "mermaid":
-      id = str(time.time_ns()) + "-" + str(get_id())
-      temp_mmd_path = path.abspath(path.join(temp_dir_path, id + ".mmd"))
-      temp_svg_path = path.abspath(path.join(temp_dir_path, id + ".png"))
-      with open(temp_mmd_path, "w+", -1, "utf8") as temp_mmd:
-        temp_mmd.write(token.content)
-      requests_get(f"http://127.0.0.1:{node_server['port']}/render_mermaid?src={temp_mmd_path}&target={temp_svg_path}")
-      doc.add_picture(temp_svg_path, Pt(380))
-      last_paragraph = doc.paragraphs[-1] 
-      last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-      if ti - 1 > 0 and tokens[ti - 1].type == "html_block":
-        html_block = tokens[ti - 1]
-        matched = re.match(r"<!--(?P<content>(.|\s|\n)*?)-->", html_block.content)
-        if matched:
-          try:
-            data = json.loads(matched.group("content"))
-            if data["name"]:
-              doc.add_paragraph(data["name"], "插图标题")
-          except: pass
-    else:
-      text = tokens[ti].content
-      doc.add_paragraph(text, "Code")
-      
-  elif token.type == "bullet_list_open":
-    lists.append(token)
-    lists_last_p.append(None)
-  elif token.type == "ordered_list_open":
-    lists.append(token)
-    lists_last_p.append(None)
-  elif token.type == "bullet_list_close":
-    lists.pop()
-    lists_last_p.pop()
-  elif token.type == "ordered_list_close":
-    lists.pop()
-    lists_last_p.pop()
+        text = tokens[ti].content
+        doc.add_paragraph(text, "代码")
+        
+    elif token.type == "bullet_list_open":
+      lists.append(token)
+      lists_last_p.append(None)
+    elif token.type == "ordered_list_open":
+      lists.append(token)
+      lists_last_p.append(None)
+    elif token.type == "bullet_list_close":
+      lists.pop()
+      lists_last_p.pop()
+    elif token.type == "ordered_list_close":
+      lists.pop()
+      lists_last_p.pop()
+    elif token.type == "table_open":
+      table = doc.add_table(0, 0, "Table Grid")
+      table.style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER # type: ignore
+      set_font_face(table.style, CNFontFaces.宋体, "Times New Roman")
+      # 表格居中
+      tblPr = table._tblPr
+      jc = create_element("w:jc")
+      create_attribute(jc, "w:val", "center")
+      tblPr.append(jc)
+
+      mode = "table"
+      table_first_row = True
+
+
+  elif mode == "table":
+    if token.type == "thead_open":
+      mode = "table_thead_open"
+    elif token.type == "tr_open":
+      table_row = table.add_row() # type: ignore
+
+      if table_first_row:
+        # 把第一行作为行头
+        trPr = table_row._element.getchildren()[0]
+        tblHeader = create_element("w:tblHeader")
+        trPr.append(tblHeader)
+        table_first_row = False
+
+      table_row_cell_index = 0
+    elif token.type == "td_open":
+      cell = table_row.cells[table_row_cell_index] # type: ignore
+      cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+      # 设置宽度自适应
+      tcW = cell._element.getchildren()[0].getchildren()[0]
+      create_attribute(tcW, "w:type", "auto")
+
+      p = cell.paragraphs[0]
+      p.style = table_content
+      p.add_run(tokens[ti + 1].content) 
+      table_row_cell_index += 1
+    elif token.type == "table_close":
+      p = doc.add_paragraph()
+      p._element
+      table.autofit = True # type: ignore
+      mode = "normal"
+    
+
+  elif mode == "table_thead_open":
+    if token.type == "th_open":
+      col = table.add_column(Pt(100)) # type: ignore
+    elif token.type == "thead_close":
+      mode = "table"
+
+
 
 s = doc.add_section(WD_SECTION.CONTINUOUS)
 header = s.header
@@ -673,7 +758,24 @@ procress_header(header)
 doc.sections[0].footer.paragraphs[0].style.font.size = Pt(FontSizes.小五) # type: ignore
 doc.sections[0].footer.paragraphs[0].style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER # type: ignore
 set_font_face(doc.sections[0].footer.paragraphs[0].style, "宋体", 'Times New Roman') # type: ignore
-add_page_number(doc.sections[0].footer.paragraphs[0].add_run())
+
+doc.sections[1].footer.is_linked_to_previous = False
+pg_num_type = create_page_number_type(start_num=1, format="upperRoman")
+doc.sections[1]._sectPr.append(pg_num_type)
+add_page_number(doc.sections[1].footer.paragraphs[0].add_run())
+
+pg_num_type = create_page_number_type(format="upperRoman")
+doc.sections[2]._sectPr.append(pg_num_type)
+# doc.sections[2].footer.is_linked_to_previous = False
+
+pg_num_type = create_page_number_type(format="upperRoman")
+doc.sections[3]._sectPr.append(pg_num_type)
+# doc.sections[3].footer.is_linked_to_previous = False
+
+doc.sections[4].footer.is_linked_to_previous = False
+pg_num_type = create_page_number_type(start_num=1)
+doc.sections[4]._sectPr.append(pg_num_type)
+add_page_number(doc.sections[4].footer.paragraphs[0].add_run())
 
 # 设置每节的页外边距。
 # 正文页边距：上：3cm，下：2.5 cm，左：2.9cm，右：2.9 cm
