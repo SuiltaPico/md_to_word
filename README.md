@@ -35,6 +35,8 @@
 - LaTeX
 
 ## 使用说明
+在使用之前，你可以看看 `example` 目录下的示例文件。`example` 目录有一个 Markdown 文件和一个生成的 Docx 文件，并使用 `example/config.toml` 的配置进行转换。
+
 ### 第一步：配置您的 `config.toml` 文件
 首先，请打开 `config.toml` 文件（可以用记事本打开），并在这里根据提醒进行一些配置。一般来说，我们只需要设置源路径和目标路径：
 ```toml
@@ -175,6 +177,9 @@ a --> b
 ### 其他问题
 如果您还发现了其它问题，请去 https://github.com/SuiltaPico/md_to_word/issues/new 这里新增一个反馈。
 
+## Obsdian 用户需要注意的选项 
+由于 Obsdian 引用的图片是没有路径的，所以你需要在 `config.toml` 的 `obsdian_image_find_paths` 填写图片都被放在了哪些文件夹。
+
 ## 相关链接
 - Github: https://github.com/SuiltaPico/md_to_word
 
@@ -189,6 +194,7 @@ a --> b
 ## 路线图
 - [ ] 表格列宽度的设置。
 - [ ] 图片宽度的设置。
+- [ ] Mermaid 更高质量的图像渲染。
 - [ ] LaTeX 支持。
 
 ## FAQ

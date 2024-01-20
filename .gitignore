@@ -1,5 +1,6 @@
 .obsidian
 node_modules
+example/.md_to_word_temp
 node/*
 !node/.tips.txt
 chrome/*
