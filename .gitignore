@@ -9,7 +9,7 @@ test
 style_list_file.txt
 md_to_word.zip
 dist.zip
-dist.zip.tmp
+*.tmp
 private_config.toml
 __pycache__
 conversion.build

@@ -208,7 +208,7 @@ def count_char_map(src: str):
 # 汉字和空格比例大约是4.4:1，数字和空格比例大约是2:1
 # 一行最好容纳有67个空格
 def calculate_char_map_space_sum(char_map):
-  weighted_sum = char_map["space"] * 1 + char_map["alpha"] * 2 + char_map["number"] * 2.04 + char_map["other"] * 4.1
+  weighted_sum = char_map["space"] * 1 + char_map["alpha"] * 2.5 + char_map["number"] * 2.04 + char_map["other"] * 4.1
   return weighted_sum
 
 def get_count_char_space_width(src: str):
@@ -218,20 +218,13 @@ def get_count_char_space_width(src: str):
     if char.isspace():
       char_widths.append(1)
     elif char.isascii() and char.isalpha():
-      char_widths.append(2)
+      char_widths.append(2.6)
     elif char.isdigit():
       char_widths.append(2.04)
     else:
       char_widths.append(4.1)
   
   return char_widths
-
-def get_free_port():
-  sock = socket.socket()
-  sock.bind(('', 0))
-  port = sock.getsockname()[1]
-  sock.close()
-  return port
 
 # 打印警告的函数
 def preprint_content_in_map(src_lines, map):

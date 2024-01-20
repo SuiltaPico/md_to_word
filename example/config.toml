@@ -1,0 +1,7 @@
+src_path = "./example/几何驱动的图像颜色编辑与应用.md"
+target_path = "./example/几何驱动的图像颜色编辑与应用.docx"
+template_path = "./template/[template]（整本模板-普招）信息与智能工程学院2020级毕业论文（设计）（更新：2023.12）.docx"
+temp_dir_path = "{target_dir}/.md_to_word_temp"
+obsdian_image_find_paths = []
+nodejs_path = "./node/node.exe"
+chromium_path = "./chrome/chrome.exe"

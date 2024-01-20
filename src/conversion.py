@@ -6,22 +6,19 @@ import math
 import os
 import os.path as path
 import re
+import sys
 import shutil
-import socket
-import subprocess
-import threading
 import time
 
-import docx
-import requests
-import yaml
-from docx import document
+from requests import get as requests_get
+from yaml import load as yaml_load, Loader as yaml_Loader
+from docx.document import Document as DocumentType
+from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
 # WD_LINE_SPACING 为行距。
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_UNDERLINE
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_UNDERLINE, WD_TAB_LEADER, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml import CT_Inline, OxmlElement, ns, xmlchemy
-from docx.oxml.ns import qn
 # 颜色、单位。
 from docx.shared import Cm, Pt, RGBColor
 from docx.styles.style import CharacterStyle, ParagraphStyle
@@ -29,45 +26,23 @@ from docxcompose.composer import Composer
 from markdown_it import MarkdownIt
 from mdit_py_plugins import front_matter
 from obsdian_image_plugin import obsdian_image_plugin
-import toml
 
 from myutils import (
   add_page_number, create_attribute, create_element,
-  delete_paragraph, list_number, set_bold,
+  list_number, set_bold,
   count_char_map, calculate_char_map_space_sum, get_count_char_space_width,
-  get_free_port,
   set_font_face, set_font_face_en,
   preprint_content_in_map, print_faild
 )
-
 from myenums import (
   bcolors, FontSizes, CNFontFaces
 )
+from myconfig import load_config
+from mynode_server import start_node_server
 
 cfg = None
 try:
-  if path.exists("./private_config.toml"):
-    cfg = toml.load("./private_config.toml")
-  else:
-    cfg = toml.load("./config.toml")
-
-  required_fields = ["src_path", "target_path", "template_path", "temp_dir_path", "nodejs_path", "chromium_path"]
-  path_fields = ["src_path", "target_path", "template_path", "nodejs_path", "chromium_path"]
-  marco_fields = ["temp_dir_path"]
-  for rf in required_fields:
-    if not rf in cfg or cfg[rf] == "":
-      raise Exception(f"必填项 {rf} 没有被设置。")
-  for mf in marco_fields:
-    cfg[mf] = cfg[mf].replace("{src_dir}", path.dirname(path.abspath(cfg["src_path"])))
-    cfg[mf] = cfg[mf].replace("{target_dir}", path.dirname(path.abspath(cfg["target_path"])))
-  # print(cfg)
-  for pf in path_fields:
-    if not path.exists(cfg[pf]):
-      raise Exception(f"选项 {pf} 的路径 {cfg[pf]} 对应的文件不存在。")
-
-  if not "obsdian_image_find_paths" in cfg:
-    cfg["obsdian_image_find_paths"] = []
-
+  cfg = load_config(sys.argv[1] if sys.argv.__len__() > 1 else None)
 except Exception as e:
   print_faild("解析配置文件时出错。", e)
   exit(0)
@@ -87,40 +62,12 @@ def get_id():
   temp_dir_counter = temp_dir_counter + 1
   return temp_dir_counter
 
-def enqueue_output(out):
-  global node_server_inited
-  for line in iter(out.readline, b''):
-    utf8_line = str(line, "utf8")
-    print(utf8_line, end="")
-    if str(line, "utf8").startswith("[Node] 服务启动完成"):
-      node_server_inited = True
-  out.close()
-
-def wait_until(somepredicate, timeout, period=0.25, *args, **kwargs):
-  mustend = time.time() + timeout
-  while time.time() < mustend:
-    if somepredicate(*args, **kwargs): return True
-    time.sleep(period)
-  return False
 
 if path.exists(temp_dir_path):
   shutil.rmtree(temp_dir_path)
 os.mkdir(temp_dir_path)
 
-
-print("[消息] 正在尝试启动 Node.js 服务。")
-node_server_port = str(get_free_port())
-cmd = f"{nodejs_path} {path.join(os.getcwd(), 'src/render.mjs')} {node_server_port} {os.getcwd()}"
-print("[命令调用]", cmd)
-node_server = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-node_server_inited = False
-t = threading.Thread(target=enqueue_output, args=(node_server.stdout,))
-t.daemon = True # 线程随主程序同时退出
-t.start()
-
-wait_until(lambda : node_server_inited == True, 20)
-if node_server_inited == False:
-  print("[错误] Node.js 服务启动失败。")
+node_server = start_node_server(nodejs_path)
 
 md = MarkdownIt("commonmark", {
   "html": True
@@ -165,7 +112,7 @@ def get_meta_data_key(key_name: str):
     )
   return result
 
-doc: document.Document = docx.Document()
+doc: DocumentType = Document()
 meta_data = {}
 composer = Composer(doc)
 src_lines = []
@@ -182,13 +129,6 @@ normal_style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
 # 正文段落要统一首行缩进2个字符
 normal_style.paragraph_format.first_line_indent = Pt(FontSizes.小四 * 2)
 
-
-# [问题修复] 这段代码解决以下问题：
-# 默认的页眉宽度过宽，导致右侧（标题）文本异常溢出。
-header_style_element = doc.styles["Header"].element
-ppr: xmlchemy.BaseOxmlElement = header_style_element.first_child_found_in("w:pPr").first_child_found_in("w:tabs") # type: ignore
-right_tab: xmlchemy.BaseOxmlElement = ppr[1]
-create_attribute(right_tab, "w:pos", "9000")
 
 # 设置“各级标题”样式的具体样式。
 # 一级标题：黑体，加粗，小三，居中，1.5倍行距，段前1行，段后2行。
@@ -270,6 +210,8 @@ set_font_face(refs_style, CNFontFaces.宋体, 'Times New Roman')
 refs_style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
 refs_style.paragraph_format.space_before = Pt(FontSizes.小五)
 refs_style.paragraph_format.space_after = Pt(FontSizes.小五)
+refs_style.paragraph_format.first_line_indent = Cm(-0.76)
+refs_style.paragraph_format.left_indent = Cm(0.76)
 
 # 封面文本样式
 cover_text_style: ParagraphStyle = doc.styles.add_style("封面文本", WD_STYLE_TYPE.PARAGRAPH, False) # type: ignore
@@ -300,7 +242,6 @@ ais_text_style.hidden = False
 ais_text_style.font.size = Pt(FontSizes.四号)
 set_font_face(ais_text_style, CNFontFaces.宋体, 'Times New Roman')
 ais_text_style.paragraph_format.line_spacing = Pt(28)
-
 
 # 摘要标题
 # 三号宋体加粗，居中，1.5倍行距，段前1行、段后1行
@@ -367,6 +308,7 @@ en_abstract_content_style.priority = 99
 en_abstract_content_style.quick_style = True
 en_abstract_content_style.hidden = False
 en_abstract_content_style.font.size = Pt(FontSizes.小四)
+en_abstract_content_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 en_abstract_content_style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
 en_abstract_content_style.paragraph_format.space_before = 0
 en_abstract_content_style.paragraph_format.space_after = 0
@@ -392,10 +334,10 @@ with open(src_path, "r+", -1, "utf8") as src_file:
   for ti in range(len(tokens)):
     token = tokens[ti]
     if token.type == "front_matter":
-      meta_data.update(yaml.load(token.content, yaml.Loader))
+      meta_data.update(yaml_load(token.content, yaml_Loader))
 
 print(f"[操作] 合并模板 {path.abspath(template_path)}。")
-template_doc: document.Document = docx.Document(template_path)
+template_doc: DocumentType = Document(template_path)
 template_doc_el = template_doc._body._body
 
 # 将中山大学新华学院 LOGO 调整到合适的位置
@@ -403,7 +345,6 @@ voffset_el: xmlchemy.BaseOxmlElement = template_doc_el.xpath('./w:p[@w14:textId=
 voffset_el.text = "-0" # type: ignore
 hoffset_el: xmlchemy.BaseOxmlElement = template_doc_el.xpath('./w:p[@w14:textId="534624F7"]/w:r/w:drawing/wp:anchor/wp:positionH/wp:posOffset')[0]
 hoffset_el.text = "300000" # type: ignore
-print(voffset_el)
 
 class MustachesType:
   cover_main = "cover_main"
@@ -526,6 +467,8 @@ for _pi in range(template_doc.paragraphs.__len__()):
         elif m_type == MustachesType.ais_date:
           p.style = ais_text_style
           p.text = before + get_meta_data_key(key) + after
+          # if key == "ais_date2":
+          #   # 防止后面的页眉影响到封面和学术诚信声明
         else:
           p.text = before + get_meta_data_key(key) + after
       else:
@@ -539,6 +482,15 @@ for it in template_doc.styles:
     composer.add_styles(template_doc, it._element)
 composer.append(template_doc, False)
 print("[操作] 合并模板完成。")
+
+doc = composer.doc
+
+# [问题修复] 这段代码解决以下问题：
+# 默认的页眉宽度过宽，导致右侧（标题）文本异常溢出。
+header_style_element = doc.styles["Header"].element
+ppr: xmlchemy.BaseOxmlElement = header_style_element.first_child_found_in("w:pPr").first_child_found_in("w:tabs") # type: ignore
+right_tab: xmlchemy.BaseOxmlElement = ppr[1]
+create_attribute(right_tab, "w:pos", "8650")
 
 # (生成 style_list_file.txt 的测试代码，应该删除)
 style_list = []
@@ -602,7 +554,7 @@ for ti in range(len(tokens)):
 
   if token.type == "heading_open":
     level = int(token.tag[1:])
-    text = tokens[ti + 1].content.strip()
+    text = re.sub(r"\s", "\u00a0", tokens[ti + 1].content.strip())
 
     # if level > 3:
     #   print(
@@ -620,12 +572,13 @@ for ti in range(len(tokens)):
       #   first_title_1 = False
       # else:
       s = doc.add_section(WD_SECTION.CONTINUOUS)
-
       header = s.header
-      header.paragraphs[0].text = (f"{get_meta_data_paper_title()}\t\t{last_level_1_heading_text}")
-      last_level_1_heading_text = text
+
+      if last_level_1_heading_text != "":
+        header.paragraphs[0].text = (f"{get_meta_data_paper_title()}\t\t{last_level_1_heading_text}")
       procress_header(header)
 
+      last_level_1_heading_text = text
       # if last_level_2_heading_line != None:
       #   if last_level_2_heading_text != "本章小结":
       #     print(
@@ -645,7 +598,15 @@ for ti in range(len(tokens)):
         for tk in inline_token.children:
           if tk.type == "text":
             if last_level_1_heading_text == "参考文献":
-              p = doc.add_paragraph(tk.content, "参考文献")
+              matched = re.search(r"\[\s*(\d+)\s*\]\s*(.+)", tk.content)
+              if not matched:
+                p = doc.add_paragraph(tk.content, "参考文献")
+              else:
+                p = doc.add_paragraph(f"[{matched.group(1)}]\t", "参考文献")
+                p.paragraph_format.tab_stops.add_tab_stop(
+                  Pt(FontSizes.小五 * 2.4), # type: ignore
+                )
+                p.add_run(matched.group(2))
             elif lists_len > 0:
               p = doc.add_paragraph(tk.content, list_style)
               prev = lists_last_p[-1]
@@ -655,7 +616,7 @@ for ti in range(len(tokens)):
             else:
               p = doc.add_paragraph(tk.content)
           elif tk.type == "image":
-            doc.add_picture(tk.attrs["src"], Pt(380)) # type: ignore
+            doc.add_picture(path.join(path.dirname(src_path), tk.attrs["src"]), Pt(380)) # type: ignore
             last_paragraph = doc.paragraphs[-1] 
             last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             doc.add_paragraph(tk.content, "插图标题")
@@ -671,7 +632,7 @@ for ti in range(len(tokens)):
       temp_svg_path = path.abspath(path.join(temp_dir_path, id + ".png"))
       with open(temp_mmd_path, "w+", -1, "utf8") as temp_mmd:
         temp_mmd.write(token.content)
-      requests.get(f"http://127.0.0.1:{node_server_port}/render_mermaid?src={temp_mmd_path}&target={temp_svg_path}")
+      requests_get(f"http://127.0.0.1:{node_server['port']}/render_mermaid?src={temp_mmd_path}&target={temp_svg_path}")
       doc.add_picture(temp_svg_path, Pt(380))
       last_paragraph = doc.paragraphs[-1] 
       last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -722,19 +683,38 @@ for section in sections:
   section.bottom_margin = Cm(2.5)
   section.left_margin = Cm(2.9)
   section.right_margin = Cm(2.9)
+  section.page_width = Cm(21)
+  section.page_height = Cm(29.7)
 
-# template_doc: document.Document = docx.Document(template)
-# composer = Composer(template_doc)
+# [问题修复] 摘要和目录缺少页眉
+doc.sections[1].header.is_linked_to_previous = False
+doc.sections[1].header.paragraphs[0].text = f"{get_meta_data_paper_title()}\t\t摘要"
+procress_header(doc.sections[1].header)
+doc.sections[2].header.is_linked_to_previous = False
+doc.sections[2].header.paragraphs[0].text = f"{get_meta_data_key('英文摘要标题')}\t\tAbstract"
+procress_header(doc.sections[2].header)
+doc.sections[3].header.is_linked_to_previous = False
+doc.sections[3].header.paragraphs[0].text = f"{get_meta_data_paper_title()}\t\t目录"
+procress_header(doc.sections[3].header)
 
-# composer.append(doc, False)
+  
 doc.save(f"{temp_dir_path}/main_doc.docx")
 composer.save(f"{temp_dir_path}/temp.docx")
+
+# for s in composer.doc.sections:
+#   print("------")
+#   print(s.header.paragraphs[0].text)
+#   print("--")
+#   for p in s.iter_inner_content():
+#     print(p.text)
+#   print(s.header._element.xml)
 
 try:
   composer.save(target_path)
 
   print(f"\n\n{bcolors.OKGREEN}----生成成功----{bcolors.ENDC}\n")
   print(f"\n\n{bcolors.OKGREEN}文件储存在 {bcolors.BOLD}{path.abspath(target_path)}{bcolors.ENDC}\n")
+  print(f"{bcolors.OKGREEN}{bcolors.BOLD}[重要提醒] 请在生成后的文档的“目录”章节中补充目录，之前版本不支持生成目录。{bcolors.ENDC}")
 except PermissionError as e:
   print(f"\n\n{bcolors.FAIL}----发生错误----{bcolors.ENDC}\n")
   print(
@@ -747,4 +727,4 @@ except Exception as e:
   print(f"{bcolors.FAIL}[错误] 文件无法保存！由于未知的原因，生成的 Word 文件无法保存。{bcolors.ENDC}")
   print("原始报错信息：", e)
 
-node_server.kill()
+node_server["server"].kill()
